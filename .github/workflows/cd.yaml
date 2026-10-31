@@ -4,6 +4,8 @@ on:
   release:
     types:
       - published
+  # 便于在网页上手动重跑一次发布；正式发布仍由 Release published 触发
+  workflow_dispatch:
 
 jobs:
   cd:

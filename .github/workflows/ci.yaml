@@ -7,6 +7,8 @@ on:
   pull_request:
     branches:
       - main
+  # 便于在网页上手动触发一次，验证 fork 的流水线是否可用
+  workflow_dispatch:
 
 jobs:
   ci:
