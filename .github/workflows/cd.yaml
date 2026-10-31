@@ -17,5 +17,7 @@ jobs:
       pnpm-version: 10
       node-version: 24
       java-version: 21
-      skip-appstore-release: false
+      # 本仓库是 fork：上游的应用市场凭据（HALO_PAT 与 app-id app-z7ouhnfn）属于上游私有配置，
+      # fork 里没有，申请必然失败。因此只做构建与 GitHub Release 附件上传，不发布到应用市场。
+      skip-appstore-release: true
       app-id: app-z7ouhnfn
