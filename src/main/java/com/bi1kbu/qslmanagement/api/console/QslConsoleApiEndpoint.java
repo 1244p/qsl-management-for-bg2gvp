@@ -1,5 +1,6 @@
 package com.bi1kbu.qslmanagement.api.console;
 
+import static org.springframework.web.reactive.function.server.RequestPredicates.DELETE;
 import static org.springframework.web.reactive.function.server.RequestPredicates.GET;
 import static org.springframework.web.reactive.function.server.RequestPredicates.POST;
 import static org.springframework.web.reactive.function.server.RouterFunctions.route;
@@ -12,6 +13,7 @@ import com.bi1kbu.qslmanagement.api.QslCardRequestService;
 import com.bi1kbu.qslmanagement.api.QslConsoleActionService;
 import com.bi1kbu.qslmanagement.api.QslImportExportJobService;
 import com.bi1kbu.qslmanagement.api.QslLegacyMigrationService;
+import com.bi1kbu.qslmanagement.api.QslLogSyncService;
 import com.bi1kbu.qslmanagement.api.QslMigrationStateService;
 import com.bi1kbu.qslmanagement.api.QslNotificationMailService;
 import com.bi1kbu.qslmanagement.api.QslOverviewService;
@@ -44,6 +46,7 @@ public class QslConsoleApiEndpoint implements CustomEndpoint {
     private final QslAiService aiService;
     private final QslQrzAddressLookupService qrzAddressLookupService;
     private final QslCardRequestService qslCardRequestService;
+    private final QslLogSyncService logSyncService;
     private final PluginContext pluginContext;
 
     @Autowired
@@ -57,6 +60,7 @@ public class QslConsoleApiEndpoint implements CustomEndpoint {
         QslAiService aiService,
         QslQrzAddressLookupService qrzAddressLookupService,
         QslCardRequestService qslCardRequestService,
+        QslLogSyncService logSyncService,
         PluginContext pluginContext
     ) {
         this.overviewService = overviewService;
@@ -68,6 +72,7 @@ public class QslConsoleApiEndpoint implements CustomEndpoint {
         this.aiService = aiService;
         this.qrzAddressLookupService = qrzAddressLookupService;
         this.qslCardRequestService = qslCardRequestService;
+        this.logSyncService = logSyncService;
         this.pluginContext = pluginContext;
     }
 
@@ -88,6 +93,7 @@ public class QslConsoleApiEndpoint implements CustomEndpoint {
             migrationStateService,
             notificationMailService,
             aiService,
+            null,
             null,
             null,
             PluginContext.builder().name("qsl-management").version("0.0.0").build()
@@ -113,6 +119,7 @@ public class QslConsoleApiEndpoint implements CustomEndpoint {
             notificationMailService,
             aiService,
             qrzAddressLookupService,
+            null,
             null,
             PluginContext.builder().name("qsl-management").version("0.0.0").build()
         );
@@ -164,7 +171,19 @@ public class QslConsoleApiEndpoint implements CustomEndpoint {
             .andRoute(POST("/legacy-migrations/execute"), this::executeLegacyMigration)
             .andRoute(POST("/exports/jobs"), this::createExportJob)
             .andRoute(GET("/exports/jobs/{jobName}"), this::getExportJob)
-            .andRoute(GET("/exports/jobs/{jobName}/download"), this::downloadExportJob);
+            .andRoute(GET("/exports/jobs/{jobName}/download"), this::downloadExportJob)
+            .andRoute(GET("/log-sync/sources"), this::listLogSyncSources)
+            .andRoute(GET("/log-sync/profiles"), this::listLogSyncProfiles)
+            .andRoute(POST("/log-sync/profiles"), this::saveLogSyncProfile)
+            .andRoute(POST("/log-sync/profiles/{profileName}/credential"), this::saveLogSyncCredential)
+            .andRoute(POST("/log-sync/profiles/{profileName}/credential/clear"),
+                this::clearLogSyncCredential)
+            .andRoute(POST("/log-sync/profiles/{profileName}/test"), this::testLogSyncConnection)
+            .andRoute(POST("/log-sync/profiles/{profileName}/sync"), this::runLogSync)
+            .andRoute(POST("/log-sync/profiles/{profileName}/force-stop"), this::forceStopLogSync)
+            .andRoute(GET("/log-sync/profiles/{profileName}/jobs"), this::listLogSyncJobs)
+            .andRoute(POST("/log-sync/profiles/{profileName}/reset-cursor"), this::resetLogSyncCursor)
+            .andRoute(DELETE("/log-sync/profiles/{profileName}"), this::deleteLogSyncProfile);
     }
 
     @Override
@@ -579,6 +598,144 @@ public class QslConsoleApiEndpoint implements CustomEndpoint {
             .onErrorResume(QslApiResponses::handleError);
     }
 
+    private Mono<ServerResponse> listLogSyncSources(ServerRequest request) {
+        return ensureAuthenticated(request)
+            .then(Mono.fromSupplier(logSyncService::supportedSources))
+            .flatMap(QslApiResponses::ok)
+            .onErrorResume(QslApiResponses::handleError);
+    }
+
+    private Mono<ServerResponse> listLogSyncProfiles(ServerRequest request) {
+        return ensureAuthenticated(request)
+            .then(logSyncService.listProfiles())
+            .flatMap(QslApiResponses::ok)
+            .onErrorResume(QslApiResponses::handleError);
+    }
+
+    private Mono<ServerResponse> saveLogSyncProfile(ServerRequest request) {
+        return ensureAuthenticated(request)
+            .flatMap(authenticatedOperator -> request.bodyToMono(LogSyncProfileRequest.class)
+                .defaultIfEmpty(new LogSyncProfileRequest(
+                    "", "", "", null, null, null, "", "", null
+                ))
+                .flatMap(payload -> logSyncService.saveProfile(
+                    new QslLogSyncService.SaveProfileCommand(
+                        payload.sourceType(),
+                        payload.myCallSign(),
+                        payload.accountName(),
+                        payload.enabled(),
+                        payload.autoSyncEnabled(),
+                        payload.syncIntervalMinutes(),
+                        payload.defaultSceneType(),
+                        payload.conflictStrategy(),
+                        payload.maxRecordsPerSync()
+                    ),
+                    authenticatedOperator.name(),
+                    authenticatedOperator.clientIp()
+                )))
+            .flatMap(QslApiResponses::ok)
+            .onErrorResume(QslApiResponses::handleError);
+    }
+
+    private Mono<ServerResponse> saveLogSyncCredential(ServerRequest request) {
+        var profileName = request.pathVariable("profileName");
+        return ensureAuthenticated(request)
+            .flatMap(authenticatedOperator -> request.bodyToMono(LogSyncCredentialRequest.class)
+                .defaultIfEmpty(new LogSyncCredentialRequest("", ""))
+                .flatMap(payload -> logSyncService.saveCredential(
+                    profileName,
+                    new QslLogSyncService.SaveCredentialCommand(
+                        payload.accountName(),
+                        payload.password()
+                    ),
+                    authenticatedOperator.name(),
+                    authenticatedOperator.clientIp()
+                )))
+            .flatMap(QslApiResponses::ok)
+            .onErrorResume(QslApiResponses::handleError);
+    }
+
+    private Mono<ServerResponse> clearLogSyncCredential(ServerRequest request) {
+        var profileName = request.pathVariable("profileName");
+        return ensureAuthenticated(request)
+            .flatMap(authenticatedOperator -> logSyncService.clearCredential(
+                profileName,
+                authenticatedOperator.name(),
+                authenticatedOperator.clientIp()
+            ))
+            .flatMap(QslApiResponses::ok)
+            .onErrorResume(QslApiResponses::handleError);
+    }
+
+    private Mono<ServerResponse> resetLogSyncCursor(ServerRequest request) {
+        var profileName = request.pathVariable("profileName");
+        return ensureAuthenticated(request)
+            .flatMap(authenticatedOperator -> logSyncService.resetCursor(
+                profileName,
+                authenticatedOperator.name(),
+                authenticatedOperator.clientIp()
+            ))
+            .flatMap(QslApiResponses::ok)
+            .onErrorResume(QslApiResponses::handleError);
+    }
+
+    private Mono<ServerResponse> deleteLogSyncProfile(ServerRequest request) {
+        var profileName = request.pathVariable("profileName");
+        return ensureAuthenticated(request)
+            .flatMap(authenticatedOperator -> logSyncService.deleteProfile(
+                profileName,
+                authenticatedOperator.name(),
+                authenticatedOperator.clientIp()
+            ))
+            .then(QslApiResponses.ok(Boolean.TRUE))
+            .onErrorResume(QslApiResponses::handleError);
+    }
+
+    private Mono<ServerResponse> testLogSyncConnection(ServerRequest request) {
+        var profileName = request.pathVariable("profileName");
+        return ensureAuthenticated(request)
+            .flatMap(authenticatedOperator -> logSyncService.testConnection(
+                profileName,
+                authenticatedOperator.name(),
+                authenticatedOperator.clientIp()
+            ))
+            .flatMap(QslApiResponses::ok)
+            .onErrorResume(QslApiResponses::handleError);
+    }
+
+    private Mono<ServerResponse> runLogSync(ServerRequest request) {
+        var profileName = request.pathVariable("profileName");
+        return ensureAuthenticated(request)
+            .flatMap(authenticatedOperator -> logSyncService.startSync(
+                profileName,
+                "MANUAL",
+                authenticatedOperator.name(),
+                authenticatedOperator.clientIp()
+            ))
+            .flatMap(QslApiResponses::ok)
+            .onErrorResume(QslApiResponses::handleError);
+    }
+
+    private Mono<ServerResponse> forceStopLogSync(ServerRequest request) {
+        var profileName = request.pathVariable("profileName");
+        return ensureAuthenticated(request)
+            .flatMap(authenticatedOperator -> logSyncService.forceStop(
+                profileName,
+                authenticatedOperator.name(),
+                authenticatedOperator.clientIp()
+            ))
+            .flatMap(QslApiResponses::ok)
+            .onErrorResume(QslApiResponses::handleError);
+    }
+
+    private Mono<ServerResponse> listLogSyncJobs(ServerRequest request) {
+        var profileName = request.pathVariable("profileName");
+        return ensureAuthenticated(request)
+            .then(logSyncService.listJobs(profileName))
+            .flatMap(QslApiResponses::ok)
+            .onErrorResume(QslApiResponses::handleError);
+    }
+
     private Mono<ServerResponse> previewQrzAddressLookup(ServerRequest request) {
         return ensureAuthenticated(request)
             .flatMap(ignored -> request.bodyToMono(QrzAddressLookupRequest.class)
@@ -948,6 +1105,22 @@ public class QslConsoleApiEndpoint implements CustomEndpoint {
     }
 
     private record NotificationMailBatchSendRequest(List<String> cardRecordNames, String scene, String source) {
+    }
+
+    private record LogSyncProfileRequest(
+        String sourceType,
+        String myCallSign,
+        String accountName,
+        Boolean enabled,
+        Boolean autoSyncEnabled,
+        Integer syncIntervalMinutes,
+        String defaultSceneType,
+        String conflictStrategy,
+        Integer maxRecordsPerSync
+    ) {
+    }
+
+    private record LogSyncCredentialRequest(String accountName, String password) {
     }
 
     private record NotificationMailTestRequest(String scene) {

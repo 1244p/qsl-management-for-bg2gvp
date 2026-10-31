@@ -5,6 +5,7 @@ import com.bi1kbu.qslmanagement.api.QslAiService;
 import com.bi1kbu.qslmanagement.api.QslAiPromptDefaults;
 import com.bi1kbu.qslmanagement.api.QslAuditService;
 import com.bi1kbu.qslmanagement.api.QslCardRequestService;
+import com.bi1kbu.qslmanagement.api.QslLogSyncService;
 import com.bi1kbu.qslmanagement.api.QslMigrationStateService;
 import com.bi1kbu.qslmanagement.api.QslQrzAddressLookupService;
 import com.bi1kbu.qslmanagement.extension.model.StationProfile;
@@ -12,13 +13,22 @@ import com.bi1kbu.qslmanagement.extension.model.SystemSetting;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Bean;
+import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Mono;
 import run.halo.app.extension.ReactiveExtensionClient;
 import run.halo.app.plugin.BasePlugin;
 import run.halo.app.plugin.PluginContext;
 
+/**
+ * 插件启动类。
+ *
+ * <p>{@code @EnableScheduling}：外部日志同步的定时任务需要 Spring 调度能力，
+ * 见 https://docs.halo.run/developer-guide/plugin/basics/server/scheduled-tasks 。
+ * 调度注册在插件自己的应用上下文里，插件停止时随之取消，不需要手工清理。</p>
+ */
 @Component
+@EnableScheduling
 public class QslManagementPlugin extends BasePlugin {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(QslManagementPlugin.class);
@@ -28,16 +38,19 @@ public class QslManagementPlugin extends BasePlugin {
     private final ReactiveExtensionClient client;
     private final QslMigrationStateService migrationStateService;
     private final QslCardRequestService qslCardRequestService;
+    private final QslLogSyncService qslLogSyncService;
 
     public QslManagementPlugin(
         PluginContext pluginContext,
         ReactiveExtensionClient client,
-        QslCardRequestService qslCardRequestService
+        QslCardRequestService qslCardRequestService,
+        QslLogSyncService qslLogSyncService
     ) {
         super(pluginContext);
         this.client = client;
         this.migrationStateService = new QslMigrationStateService(client);
         this.qslCardRequestService = qslCardRequestService;
+        this.qslLogSyncService = qslLogSyncService;
     }
 
     @Bean
@@ -68,6 +81,9 @@ public class QslManagementPlugin extends BasePlugin {
                 "实体卡申请QSO占用修复完成：扫描={}，释放={}，保留={}",
                 result.scanned(), result.released(), result.kept()
             ))
+            // 重启后不可能还有作业在跑，把遗留的「进行中」作业收尾成失败，
+            // 否则页面上会永远显示进行中，并挡住重置游标与删除配置。
+            .then(qslLogSyncService.reconcileRunningJobs())
             .then()
             .subscribe(
             ignored -> {

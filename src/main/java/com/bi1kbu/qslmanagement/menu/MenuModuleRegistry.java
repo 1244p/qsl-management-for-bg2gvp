@@ -107,6 +107,12 @@ public class MenuModuleRegistry {
                 edit("address-bureau"),
                 edit("equipment-catalog")
             )
+        ),
+        module(
+            "log-sync",
+            "外部日志同步",
+            List.of(view("qso-record")),
+            List.of(view("log-sync"), view("qso-record"))
         )
     );
 

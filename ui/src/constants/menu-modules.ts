@@ -459,4 +459,14 @@ export const qslMenuModules: QslMenuModule[] = [
       toEditPermission('equipment-catalog'),
     ],
   },
+  {
+    key: 'log-sync',
+    title: '外部日志同步',
+    group: '数据',
+    priority: 50,
+    viewPermission: toViewPermission('log-sync'),
+    editPermission: toEditPermission('log-sync'),
+    viewDependencies: [toViewPermission('qso-record')],
+    editDependencies: [toViewPermission('log-sync'), toViewPermission('qso-record')],
+  },
 ]

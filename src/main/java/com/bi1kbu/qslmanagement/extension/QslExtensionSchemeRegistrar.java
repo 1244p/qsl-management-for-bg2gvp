@@ -6,6 +6,8 @@ import com.bi1kbu.qslmanagement.extension.model.CardRecord;
 import com.bi1kbu.qslmanagement.extension.model.EquipmentCatalogEntry;
 import com.bi1kbu.qslmanagement.extension.model.ExchangeRequest;
 import com.bi1kbu.qslmanagement.extension.model.ImportExportJob;
+import com.bi1kbu.qslmanagement.extension.model.LogSyncJob;
+import com.bi1kbu.qslmanagement.extension.model.LogSyncProfile;
 import com.bi1kbu.qslmanagement.extension.model.OfflineExchangeCard;
 import com.bi1kbu.qslmanagement.extension.model.OfflineActivity;
 import com.bi1kbu.qslmanagement.extension.model.QslAuditLog;
@@ -44,6 +46,8 @@ public class QslExtensionSchemeRegistrar {
         registerWithNameIndex(schemeManager, QslCardRequest.class);
         registerWithNameIndex(schemeManager, QslCardRequestQsoReservation.class);
         registerWithNameIndex(schemeManager, ImportExportJob.class);
+        registerWithNameIndex(schemeManager, LogSyncProfile.class);
+        registerWithNameIndex(schemeManager, LogSyncJob.class);
         registerWithNameIndex(schemeManager, QslMigrationState.class);
     }
 

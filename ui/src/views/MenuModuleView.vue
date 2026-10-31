@@ -13,6 +13,7 @@ import DefaultModulePlaceholder from './modules/DefaultModulePlaceholder.vue'
 import EquipmentCatalogModule from './modules/EquipmentCatalogModule.vue'
 import ExchangeRequestReviewModule from './modules/ExchangeRequestReviewModule.vue'
 import ImportExportModule from './modules/ImportExportModule.vue'
+import LogSyncModule from './modules/LogSyncModule.vue'
 import MailReceiveConfirmModule from './modules/MailReceiveConfirmModule.vue'
 import MailSendConfirmModule from './modules/MailSendConfirmModule.vue'
 import OverviewDashboardModule from './modules/OverviewDashboardModule.vue'
@@ -219,6 +220,8 @@ const renderer = computed<ModuleRenderer>(() => {
       return { component: EquipmentCatalogModule }
     case 'import-export':
       return { component: ImportExportModule }
+    case 'log-sync':
+      return { component: LogSyncModule }
     default:
       return {
         component: DefaultModulePlaceholder,

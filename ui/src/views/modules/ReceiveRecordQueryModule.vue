@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { VButton, VCard, VTabItem, VTabs } from '@halo-dev/components'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
-import { listExtensions, type QslExtension } from '../../api/qsl-extension-api'
+import { appendQslAuditLog } from '../../api/qsl-audit-log-api'
+import { deleteExtension, listExtensions, type QslExtension } from '../../api/qsl-extension-api'
 import QslDataTable, { type QslDataTableStatusItem } from '../../components/QslDataTable.vue'
 import QslQueryToolbar from '../../components/QslQueryToolbar.vue'
 import {
@@ -62,6 +63,8 @@ const pageSizeOptions: number[] = [20, 30, 50, 100]
 const sortKey = ref<ReceiveRecordSortKey>('receiveRecordCode')
 const sortDirection = ref<QslSortDirection>('desc')
 const activeBusinessTab = ref<BusinessTab>('ALL')
+const confirmingDeleteCode = ref('')
+const deletingCode = ref('')
 
 const filters = reactive({
   keyword: '',
@@ -327,6 +330,30 @@ watch(pageSize, () => {
   currentPage.value = 1
 })
 
+// 删除收卡记录：编号一旦删除不可复现，因此走两段式确认，并强制写审计留痕。
+const deleteRow = async (row: ReceiveRecordRow) => {
+  deletingCode.value = row.receiveRecordCode
+  try {
+    await deleteExtension(resourcePlural, row.receiveRecordCode)
+    await appendQslAuditLog({
+      action: '删除收卡记录',
+      resourceType: 'receive-record',
+      resourceName: row.receiveRecordCode,
+      detail: `收卡编号=${row.receiveRecordCode}，呼号=${row.callSign || '-'}，业务类型=${row.businessType}，收卡日期=${row.receivedDate || '-'}`,
+    })
+    confirmingDeleteCode.value = ''
+    feedback.value = `已删除收卡记录：${row.receiveRecordCode}`
+    await loadRows()
+  } catch (error) {
+    feedback.value = `删除收卡记录失败：${error instanceof Error ? error.message : '未知错误'}`
+  } finally {
+    deletingCode.value = ''
+  }
+}
+
+const asReceiveRecordRow = (row: Record<string, unknown>): ReceiveRecordRow =>
+  row as unknown as ReceiveRecordRow
+
 onMounted(loadRows)
 </script>
 
@@ -425,6 +452,8 @@ onMounted(loadRows)
         :status-items="resolveReceiveRecordStatusItems"
         status-key="matchStatus"
         status-sortable
+        show-actions
+        actions-label="操作"
         show-pagination
         :total="filteredRows.length"
         :current-page="currentPage"
@@ -433,9 +462,43 @@ onMounted(loadRows)
         @sort="toggleSort"
         @update:current-page="(value) => (currentPage = value)"
         @update:page-size="(value) => (pageSize = value)"
-      />
+      >
+        <template #row-actions="{ row }">
+          <div class="qsl-row-actions">
+            <template v-if="confirmingDeleteCode === asReceiveRecordRow(row).receiveRecordCode">
+              <VButton
+                size="xs"
+                type="danger"
+                :loading="deletingCode === asReceiveRecordRow(row).receiveRecordCode"
+                @click="deleteRow(asReceiveRecordRow(row))"
+                >确认删除</VButton
+              >
+              <VButton size="xs" type="secondary" :disabled="Boolean(deletingCode)" @click="confirmingDeleteCode = ''"
+                >取消</VButton
+              >
+            </template>
+            <VButton
+              v-else
+              size="xs"
+              type="danger"
+              :disabled="Boolean(deletingCode)"
+              @click="confirmingDeleteCode = asReceiveRecordRow(row).receiveRecordCode"
+              >删除</VButton
+            >
+          </div>
+        </template>
+      </QslDataTable>
 
       <p v-if="feedback" class="qsl-feedback">{{ feedback }}</p>
     </VCard>
   </div>
 </template>
+
+<style scoped>
+.qsl-row-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+</style>
+

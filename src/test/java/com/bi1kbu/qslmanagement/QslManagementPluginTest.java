@@ -7,6 +7,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.bi1kbu.qslmanagement.api.QslCardRequestService;
+import com.bi1kbu.qslmanagement.api.QslLogSyncService;
 import com.bi1kbu.qslmanagement.extension.model.QslMigrationState;
 import com.bi1kbu.qslmanagement.extension.model.StationProfile;
 import com.bi1kbu.qslmanagement.extension.model.SystemSetting;
@@ -31,6 +32,9 @@ class QslManagementPluginTest {
     @Mock
     QslCardRequestService qslCardRequestService;
 
+    @Mock
+    QslLogSyncService qslLogSyncService;
+
     @InjectMocks
     QslManagementPlugin plugin;
 
@@ -43,9 +47,12 @@ class QslManagementPluginTest {
         when(qslCardRequestService.reconcileReservations()).thenReturn(Mono.just(
             new QslCardRequestService.ReservationReconcileResult(0, 0, 0)
         ));
+        when(qslLogSyncService.reconcileRunningJobs()).thenReturn(Mono.empty());
         when(context.getVersion()).thenReturn("2.3.22");
         plugin.start();
         verify(qslCardRequestService).reconcileReservations();
+        // 重启后遗留的「进行中」作业必须被收尾，否则页面永远显示进行中。
+        verify(qslLogSyncService).reconcileRunningJobs();
         plugin.stop();
     }
 }
