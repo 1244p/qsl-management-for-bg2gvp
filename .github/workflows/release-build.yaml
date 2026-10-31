@@ -1,0 +1,51 @@
+name: Release Build
+
+# 说明：上游 halo-sigs 的 plugin-cd.yaml 里 build job 带 if: github.event_name == 'release'，
+# 手动触发必然 skipped，无法用于 fork 补救。本 workflow 自己构建并把 JAR 传到 GitHub Release，
+# 不发布到应用市场（fork 没有上游的 HALO_PAT 与 app-id）。
+on:
+  release:
+    types:
+      - published
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 要构建并上传附件的 tag，例如 v2.3.48
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-upload:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve tag
+        id: tag
+        run: |
+          if [ -n "${{ inputs.tag }}" ]; then
+            echo "value=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=${{ github.event.release.tag_name }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.tag.outputs.value }}
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: gradle
+
+      - name: Build plugin jar
+        run: ./gradlew clean build -x check -Pversion=${{ steps.tag.outputs.value }}
+
+      - name: Upload jar to release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.value }}
+          files: build/libs/*.jar
+          fail_on_unmatched_files: true
