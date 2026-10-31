@@ -77,9 +77,9 @@ API 版本：`v1alpha1`
 | 审计日志 | `QslAuditLog` | `qsl-audit-logs` | `report-auditlog` |
 | 导入导出任务 | `ImportExportJob` | `import-export-jobs` | `import-export` |
 
-### 制卡签发写入范围（2026-10-17）
+### 制卡签发写入范围（2026-10-17，2026-10-31 补权限模板）
 
-制卡签发沿用 `PUT /apis/qsl-management.bi1kbu.com/v1alpha1/card-records/{name}`，携带 `metadata.version（资源版本）`，由 Halo Extension RBAC 验证登录身份与资源更新权限。界面菜单节点为 `card-issue:view/edit`；资源权限由既有 `qsl-management-card-record-view/edit` 等角色模板提供，编辑模板依赖查看模板，地址与卡片局读取沿用 `qsl-management-address-bureau-view`，未新增权限。
+制卡签发沿用 `PUT /apis/qsl-management.bi1kbu.com/v1alpha1/card-records/{name}`，携带 `metadata.version（资源版本）`，由 Halo Extension RBAC 验证登录身份与资源更新权限。界面菜单节点为 `card-issue:view/edit`，对应角色模板 `qsl-management-card-issue-view/edit`（2026-10-31 补齐；此前只声明菜单节点而无模板，非超管角色拿不到该 ui-permission，三个「制卡签发」菜单会静默消失）。查看模板授予 `card-records`、`qso-records`、`offline-activities`、`system-settings` 的 `get/list`，依赖 `qsl-management-card-record-view`、`qsl-management-address-bureau-view`；编辑模板授予 `card-records` 的 `update/patch` 与 Console `notification-mails/create`，依赖查看模板与 `qsl-management-audit-log-write`。制卡签发由控制台前端直接写扩展资源，没有后端专用路由。
 
 “确认打包”仅改变当前卡片的打包与流转状态，保留地址及邮箱。候选地址仅在“确认绑定地址”提交时写入呼号精确匹配且未打包、未发出、未签收的卡片；审计保存原地址、新地址与目标编号。每个更新仍是独立请求，批次失败停止后续处理并显示已保存数量，不宣称批量事务原子性。后续邮件策略接口保持原合同；无新路由、模型迁移或历史邮件补发。
 
@@ -104,11 +104,12 @@ API 版本：`v1alpha1`
 | --- | --- | --- | --- |
 | POST | `/mail-send-confirms/{cardRecordName}/confirm` | 确认发信，更新 `cardSent/sentAt` | `mail-send-confirm:edit` |
 | POST | `/mail-receive-confirms/confirm` | 收卡确认创建 `ReceiveRecord` 并尝试关联发卡记录；无法匹配时不再新建发卡编号 | `mail-receive-confirm:edit` |
-| POST | `/receipt-confirms/{cardRecordName}/confirm` | 控制台确认对方已签收我方发出的卡片，写入 `CardRecord.spec.receiptConfirmed/publicReceiptRemarks`，不创建 `ReceiveRecord`，不分配收卡编号 | `mail-receive-confirm:edit` |
+| POST | `/receipt-confirms/{cardRecordName}/confirm` | 控制台确认对方已签收我方发出的卡片，写入 `CardRecord.spec.receiptConfirmed/publicReceiptRemarks`，不创建 `ReceiveRecord`，不分配收卡编号 | `mail-receive-confirm:edit`（角色模板 `qsl-management-mail-receive-confirm-edit` 的 Console 规则需含 `receipt-confirms/create`） |
 | POST | `/mail-receive-confirms/{cardRecordName}/received-date` | 修改卡片收卡日期，并同步更新关联收卡记录日期 | `mail-receive-confirm:edit` |
 | POST | `/mail-receive-confirms/{cardRecordName}/received-record-code/migrate` | 将指定收卡记录从源卡片关联迁移到目标卡片关联 | `mail-receive-confirm:edit` |
 | POST | `/receive-records/{receivedRecordCode}/link-outbound-card` | 将未关联发卡记录的收卡记录人工关联到匹配的正式发卡卡片，并刷新目标卡片已收状态 | `card-query:edit` |
 | POST | `/receive-records/{receivedRecordCode}/create-online-card` | 为未匹配的线上换卡收卡记录创建正式发卡卡片，并写入 `ReceiveRecord.spec.outboundCardNames/matchStatus` | `mail-receive-confirm:edit` |
+| DELETE | `/apis/qsl-management.bi1kbu.com/v1alpha1/receive-records/{name}` | 扩展通用删除（非 Console 自定义端点）：删除收卡记录本身，不回滚已关联卡片的「已收卡片」状态。2.3.48 起授权给卡片记录查询页的「删除」按钮 | `card-query:edit`（角色模板 `qsl-management-card-query-edit` 需含 `receive-records/delete` 与审计日志写入依赖） |
 | POST | `/card-mutations/{cardRecordName}/resend` | 卡片重发：清理制卡、打包、发信及相关邮件状态，刷新流程状态，保留收卡事实 | `card-mutation:edit` |
 | POST | `/card-mutations/{cardRecordName}/mark-error` | 发卡异常：将卡片类型标记为 `原类型（ERROR）`，可追加异常备注 | `card-mutation:edit` |
 | POST | `/card-mutations/{cardRecordName}/mark-resend` | 标记重发：解除发卡异常，将卡片类型还原为原类型；前端随后调用卡片重发接口清理状态 | `card-mutation:edit` |
@@ -159,6 +160,46 @@ QRZ.COM 地址获取使用官方 XML 接口，配置项为用户名、Secret 名
 | POST | `/exports/jobs` | 创建导出任务 | `import-export:edit` |
 | GET | `/exports/jobs/{jobName}` | 查询导出任务 | `import-export:view` |
 | GET | `/exports/jobs/{jobName}/download` | 下载导出文件 | `import-export:view` |
+
+### 6.4.1 外部日志同步（2026-10-31 新增）
+
+| 方法 | 路径 | 说明 | 权限 |
+| --- | --- | --- | --- |
+| GET | `/log-sync/sources` | 列出可用数据源（LoTW、QRZ Logbook） | `log-sync:view` |
+| GET | `/log-sync/profiles` | 列出同步配置 | `log-sync:view` |
+| POST | `/log-sync/profiles` | 新建或更新同步配置（不含密码） | `log-sync:edit` |
+| POST | `/log-sync/profiles/{profileName}/credential` | 保存账号凭据，写入 Halo Secret | `log-sync:edit` |
+| POST | `/log-sync/profiles/{profileName}/credential/clear` | 清除已保存凭据 | `log-sync:edit` |
+| POST | `/log-sync/profiles/{profileName}/test` | 试拉取一次，验证凭据与网络，不落库 | `log-sync:edit` |
+| POST | `/log-sync/profiles/{profileName}/sync` | 立即发起同步：创建作业后立刻返回（`message` 为「任务已启动」），实际拉取在服务端后台执行，页面刷新作业表取结果 | `log-sync:edit` |
+| GET | `/log-sync/profiles/{profileName}/jobs` | 查询最近 20 条同步作业 | `log-sync:view` |
+| POST | `/log-sync/profiles/{profileName}/force-stop` | 强制停止：把该配置下进行中的作业收尾为失败（`QSL-409-LS-0002` 表示没有进行中的作业），用于解除卡住作业对重置游标与删除配置的阻塞 | `log-sync:edit` |
+| POST | `/log-sync/profiles/{profileName}/reset-cursor` | 清空游标与错误状态，让下一次同步按全量重新拉取（不删已同步记录；有未结束作业时 409） | `log-sync:edit` |
+| DELETE | `/log-sync/profiles/{profileName}` | 删除配置，一并删除凭据 Secret 与该配置的历史作业（同步进行中时返回 409） | `log-sync:edit` |
+
+请求体：
+
+```json
+{
+  "sourceType": "LOTW",
+  "myCallSign": "BI1KBU",
+  "accountName": "登录账号",
+  "enabled": true,
+  "autoSyncEnabled": false,
+  "syncIntervalMinutes": 60,
+  "defaultSceneType": "QSO",
+  "conflictStrategy": "SKIP",
+  "maxRecordsPerSync": 5000
+}
+```
+
+凭据请求体只有 `accountName` 与 `password` 两个字段，`password` 不进 `LogSyncProfile.spec`、不回显、不进日志、不进导出包。
+
+同步配置的响应体除配置字段外还返回 `credentialConfigured`、`credentialAccountSaved`、`credentialPasswordSaved`、`credentialPasswordRequired` 与 `credentialSecretName`，用于页面分别显示账号与密码的写入状态；`credentialSecretName` 只是名字，不含任何凭据值。Secret 名一律由配置名派生（`qsl-log-sync-credential-<配置名>`），`LogSyncProfile.spec.credentialSecretName` 已标记废弃、代码不再读写。
+
+试拉取接口的响应体为 `{ ok, message, recordCount, testedAt, records }`：`recordCount` 是上游返回的记录总数，`records` 是最多 20 条压平后的样例行（形如 `BH1ABC · 20261030 1234 · SSB · 14.074`）。样例只用于让人确认上游到底返回了什么，不落库、不回传完整字段；上游返回空日志时 `ok` 仍为真、`recordCount` 为 0，不能报成连接失败。
+
+删除接口的前置条件：该配置存在（否则 404 `QSL-404-LS-0001`）、且没有未结束的同步作业（否则 409 `QSL-409-LS-0001`）。删除顺序为 凭据 Secret → 历史作业 → 配置本体 → 审计日志；内层 `Mono` 必须用 `Mono.defer` 包裹，否则装配阶段就会执行删除前的查询，前置检查形同虚设。
 
 ### 6.5 控制台请求体
 

@@ -84,3 +84,6 @@ tools/**/*.sqlite3
 tools/**/*.zip
 tools/**/*.7z
 tools/**/*.rar
+
+# 本地构建工具链（JDK、Gradle 发行版与临时目录），不入库
+/.tools/
